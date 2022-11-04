@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+trap cleanup SIGINT SIGTERM ERR EXIT
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
+CONFIG_FILE="$HOME/.config/gfo-cli/gfo.conf"
+NAME="gfo"
+AUTHOR="Johannes Herforth <ghostfolio@herforth.xyz>"
+VERSION="0.1.0"
+
+usage() {
+  cat <<EOF
+Program: $NAME
+Version: $VERSION
+Author : $AUTHOR
+
+Check up on your Ghostfolio account via a convenient CLI.
+
+The script aims to require minimal dependencies to be as simple and
+portable as possible.
+
+If logged in, the script with no arguments will show a smiley face 
+depending on how well your portfolio is doing today! (super-zen mode)
+
+USAGE:
+    $NAME <SUBCOMMAND>
+
+OPTIONS:
+    -h, --help      Print this help and exit
+
+SUBCOMMANDS:
+    login           Login to the Ghostfolio instance using your secret token
+    status          Check to see overview information about your profile
+EOF
+  exit
+}
+
+cleanup() {
+  trap - SIGINT SIGTERM ERR EXIT
+  # script cleanup here
+}
+
+setup_colors() {
+  if [[ -t 2 ]] && [[ -z "${NO_COLOR-}" ]] && [[ "${TERM-}" != "dumb" ]]; then
+    NOFORMAT='\033[0m' RED='\033[0;31m' GREEN='\033[0;32m' ORANGE='\033[0;33m' BLUE='\033[0;34m' PURPLE='\033[0;35m' CYAN='\033[0;36m' YELLOW='\033[1;33m'
+  else
+    NOFORMAT='' RED='' GREEN='' ORANGE='' BLUE='' PURPLE='' CYAN='' YELLOW=''
+  fi
+}
+
+msg() {
+  echo >&2 -e "${1-}"
+}
+
+die() {
+  local msg=$1
+  local code=${2-1} # default exit status 1
+  msg "$msg"
+  exit "$code"
+}
+
+parse_params() {
+  # default values of variables set from params
+  # flag=0
+  # param=''
+  # GHOSTFOLIO_INSTANCE="http://192.168.2.75:3333"
+  source $CONFIG_FILE
+
+  while :; do
+    case "${1-}" in
+    -h | --help) usage ;;
+    -v | --verbose) set -x ;;
+    --no-color) NO_COLOR=1 ;;
+    # -f | --flag) flag=1 ;; # example flag
+    # -p | --param) # example named parameter
+      # param="${2-}"
+      # shift
+      # ;;
+    -?*) die "Unknown option: $1" ;;
+    *) break ;;
+    esac
+    shift
+  done
+
+  args=("$@")
+
+  # check required params and arguments
+  # [[ -z "${param-}" ]] && die "Missing required parameter: param"
+  # [[ ${#args[@]} -eq 0 ]] && die "Missing script arguments"
+
+  return 0
+}
+
+login () {
+  GHOSTFOLIO_AUTH="$(curl -s $GHOSTFOLIO_INSTANCE/api/v1/auth/anonymous/"$1" | jq -r .authToken)"
+  
+  if [ $(echo -n "$GHOSTFOLIO_AUTH" | wc -m) = 187 ] 
+  then
+    sed -i "s/\($GHOSTFOLIO_AUTH *= *\).*/\1$GHOSTFOLIO_AUTH/" $CONFIG_FILE
+    sed -i "/GHOSTFOLIO_AUTH=/d" $CONFIG_FILE
+    echo "GHOSTFOLIO_AUTH=$GHOSTFOLIO_AUTH" >> $CONFIG_FILE
+    msg "${GREEN}Ghostfolio bearer token has been updated!${NOFORMAT}"
+  else
+    msg "${RED}Error:${NOFORMAT} There was an error in updating your bearer token! Auth token was: $GHOSTFOLIO_AUTH"
+  fi
+
+  exit 0
+}
+
+is_logged_in () {
+  if [ $(echo -n "$GHOSTFOLIO_AUTH" | wc -m) = 187 ]
+  then
+      echo true
+  else
+      echo false
+  fi
+}
+
+logged_in_check () {
+  if [ $(is_logged_in) = false ]
+  then
+    msg "You are not logged in! Login using your security token with: $NAME login <security token>"
+    exit 1
+  fi
+}
+
+execute_api () {
+    echo $(curl -s $GHOSTFOLIO_INSTANCE/api/$1 -H "Authorization: Bearer $GHOSTFOLIO_AUTH" -H "User-Agent: ghostfolio-cli/$VERSION")
+}
+
+execute_api_debug () {
+    echo $(curl -s -v $GHOSTFOLIO_INSTANCE/api/$1 -H "Authorization: Bearer $GHOSTFOLIO_AUTH" -H "User-Agent: ghostfolio-cli/$VERSION")
+}
+
+bool_expression () {
+  echo $(printf 'if(%s '$2' %s){a=1};a\n' $1 $3 | bc -s)
+}
+
+quick_check () {
+  local portfolio_info=$(execute_api "v2/portfolio/performance/?range=1d")
+  local state=$(echo $portfolio_info | jq .performance.currentGrossPerformancePercent | cut -c1-1)
+  
+  if [ $state != '-' ]
+  then
+    msg ":-)"
+  else
+    msg ":-("
+  fi
+
+  exit 0
+}
+
+overview () {
+
+  logged_in_check
+
+  # input handling
+  if [ -z "${1-}" ]
+  then
+    local time_range=$DEFAULT_RANGE
+  else
+    case "$1" in
+      1d|ytd|1y|5y|max) local time_range=$1 ;;
+      *) msg "${ORANGE}Invalid Timerange:${NOFORMAT} Select between (1d,ytd,1y,5y,max)"; exit 1 ;;
+    esac
+  fi
+  
+  local portfolio_info=$(execute_api "v2/portfolio/performance/?range=$time_range")
+  local accounts_info=$(execute_api "v1/account")
+  # echo $portfolio_info | jq
+  overview_message $portfolio_info
+  exit 0
+}
+
+overview_message () {
+  # main blocks
+  local chart=$(echo $1 | jq .chart)
+  local performance=$(echo $1 | jq .performance)
+    
+  # dates
+  local start_date=$(echo $chart | jq -r .[0].date)
+  local end_date=$(echo $chart | jq -r .[-1].date)
+    
+  # value changes
+  local current_value=$(echo $performance | jq .currentValue | echo "scale=2;$(cat -) / 1" | bc -s)
+  local net_absolute=$(echo $performance | jq .currentNetPerformance | echo "scale=2;$(cat -) / 1" | bc -s)
+  local net_relative=$(echo $1 | jq .performance.currentNetPerformancePercent | echo "scale=2;$(cat -) / 0.01" | bc -s)
+
+  msg "Portfolio Performance change from ${CYAN}$start_date${NOFORMAT} to ${CYAN}$end_date${NOFORMAT}: \n"
+  msg "   Current Value: \t $current_value"
+  if [ $(bool_expression $net_relative ">" "0") = 1 ]
+  then
+    msg "Net Value Change: \t ${GREEN}$net_absolute (+$net_relative%)${NOFORMAT}"
+  else
+    msg "Net Value Change: \t ${RED}$net_absolute ($net_relative%)${NOFORMAT}"
+  fi
+
+}
+
+if [ ! -f $CONFIG_FILE ]
+then
+  mkdir -p $(dirname $CONFIG_FILE)
+  cat << EOF > $CONFIG_FILE
+GHOSTFOLIO_INSTANCE="http://localhost:3333"
+DEFAULT_RANGE="1d"
+GHOSTFOLIO_AUTH=
+EOF
+  
+  msg "Config file did not exist. Created default file at $CONFIG_FILE."
+  msg "Please review the settings and fill the AUTH token by signing in using:"
+  msg "$NAME login <security token>"
+  exit 0
+fi
+
+parse_params "$@"
+setup_colors
+
+# script logic here
+
+# msg "${RED}Read parameters:${NOFORMAT}"
+# msg "- flag: ${flag}"
+# msg "- param: ${param}"
+# msg "- arguments: ${args[*]-}"
+
+# msg "$(${args[0]} ${args[1]})"
+
+# without subcommand
+if [ $(is_logged_in) = true ] && [ $# -lt 1 ]
+then
+  quick_check
+fi
+
+
+# if there is a subcommand
+case "$1" in
+  login) shift; login "$@" ;;
+  status) shift; overview "$@";;
+  *) die "${RED}Error:${NOFORMAT} Unknown option: $1" ;;
+esac
+
