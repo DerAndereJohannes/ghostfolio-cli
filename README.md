@@ -13,6 +13,8 @@ Web applications are great at looking nice and providing you with relevant infor
 * `cURL`
 * `jq`
 * `bc`
+* `sed`
+* `column`
 
 ## Initialization
 

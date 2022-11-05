@@ -32,6 +32,8 @@ OPTIONS:
 SUBCOMMANDS:
     login           Login to the Ghostfolio instance using your secret token
     status          Check to see overview information about your profile
+    account         Print overview account information
+    positions       Print all positions sorted by relative net percentage change
 EOF
   exit
 }
@@ -64,7 +66,6 @@ parse_params() {
   # default values of variables set from params
   # flag=0
   # param=''
-  # GHOSTFOLIO_INSTANCE="http://192.168.2.75:3333"
   source $CONFIG_FILE
 
   while :; do
@@ -147,8 +148,91 @@ conform_number () {
   fi
 }
 
+get_symbol () {
+  case "$1" in
+    USD) echo "$";;
+    EUR) echo "€";;
+  esac
+}
+
+get_account_ids () {
+  local accounts=$(execute_api "v1/account" | jq .accounts[1:] | jq .[].id -r )
+  echo $accounts
+}
+
+accounts () {
+  logged_in_check
+  local accounts=$(execute_api "v1/account" | jq .accounts )
+  local counter=0
+  echo $accounts | jq -c '.[]' | while read account; do
+    local name=$(echo $account | jq -r .name)
+    read is_default account_type currency value balance trans_count created updated < <(echo $(echo $account | jq -r '.isDefault, .accountType, .currency, .value, .balance, .transactionCount, .createdAt, .updatedAt'))
+
+    if [ $is_default = true ]
+    then
+      msg "Account $counter: $name (${RED}DEFAULT${NOFORMAT}) \n"
+    else
+      msg "Account $counter: $name \n"
+    fi
+
+    msg "\t                    ID: \t $counter"
+    msg "\t          Account Type: \t $account_type"
+    msg "\t              Currency: \t $currency"
+    msg "\t         Current Value: \t $(echo "scale=2;$value / 1" | bc -s)"
+    msg "\t       Current Balance: \t $(echo "scale=2;$balance / 1" | bc -s)"
+    msg "\tCompleted Transactions: \t $trans_count"
+
+    msg "\t               Created: \t $created"
+    msg "\t           Last Update: \t $updated"
+
+    if [ $counter = 0 ]
+    then
+      msg "\n"
+    fi
+
+    counter=$(echo "$counter + 1" | bc -s )
+    
+  done
+  
+}
+
+positions () {
+  logged_in_check
+
+  # input handling
+  if [ -z "${1-}" ]
+  then
+    local time_range=$DEFAULT_RANGE
+  else
+    case "$1" in
+      1d|ytd|1y|5y|max) local time_range=$1 ;;
+      *) msg "${ORANGE}Invalid Timerange:${NOFORMAT} Select between (1d,ytd,1y,5y,max)"; exit 1 ;;
+    esac
+  fi
+  
+  # sort the positions by performance percentage. Better positions are higher up
+  local positions=$(execute_api "v1/portfolio/positions?range=$time_range" | jq '.positions | sort_by(.netPerformancePercentage) | reverse')
+
+  position_list "$positions" | column -s '|' --table --table-right 1
+
+}
+
+position_list () {
+  echo $1 | jq -c '.[]' | while read position; do 
+    local name=$(echo $position | jq -r .name)
+    read currency symbol market_price net_percentage < <(echo $(echo $position | jq -r '.currency, .symbol, .marketPrice, .netPerformancePercentage'))
+    net_percentage=$(conform_number $net_percentage | echo "scale=2;$(cat -) / 0.01" | bc -s )
+    if [ $(bool_expression $net_percentage ">=" 0) = 1 ]
+    then
+      echo -e "$name ($symbol):|$(get_symbol $currency)$market_price (${GREEN}+$net_percentage%${NOFORMAT})"
+    else
+      echo -e "$name ($symbol):|$(get_symbol $currency)$market_price (${RED}$net_percentage%${NOFORMAT})"
+    fi
+  done
+}
+
 quick_check () {
-  local portfolio_info=$(execute_api "v2/portfolio/performance/?range=1d")
+  local portfolio_info=$(execute_api "v2/portfolio/performance?range=1d")
   local state=$(conform_number $(echo $portfolio_info | jq .performance.currentGrossPerformancePercent) | cut -c1-1)
   
   if [ $state != '-' ]
@@ -198,13 +282,13 @@ overview_message () {
   local net_relative=$(conform_number $(echo $1 | jq .performance.currentNetPerformancePercent) | echo "scale=2;$(cat -) / 0.01" | bc -s )
 
   msg "Portfolio Performance change from ${CYAN}$start_date${NOFORMAT} to ${CYAN}$end_date${NOFORMAT}: \n"
-  msg "   Current Value: \t $current_value"
+  msg "\t   Current Value: \t $current_value"
   # echo $1 | jq
   if [ $(bool_expression $net_relative ">=" "0") = 1 ]
   then
-    msg "Net Value Change: \t ${GREEN}$net_absolute (+$net_relative%)${NOFORMAT}"
+    msg "\tNet Value Change: \t ${GREEN}$net_absolute (+$net_relative%)${NOFORMAT}"
   else
-    msg "Net Value Change: \t ${RED}$net_absolute ($net_relative%)${NOFORMAT}"
+    msg "\tNet Value Change: \t ${RED}$net_absolute ($net_relative%)${NOFORMAT}"
   fi
 
 }
@@ -246,6 +330,8 @@ fi
 # if there is a subcommand
 case "$1" in
   login) shift; login "$@" ;;
+  accounts) shift; accounts "$@" ;; 
+  positions) shift; positions "$@" ;;
   status) shift; overview "$@";;
   *) die "${RED}Error:${NOFORMAT} Unknown option: $1" ;;
 esac
