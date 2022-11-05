@@ -137,9 +137,19 @@ bool_expression () {
   echo $(printf 'if(%s '$2' %s){a=1};a\n' $1 $3 | bc -s)
 }
 
+conform_number () {
+  # check if the result is insanely small
+  if echo $1 | grep -q "e"
+  then
+      echo 0
+  else
+      echo $1
+  fi
+}
+
 quick_check () {
   local portfolio_info=$(execute_api "v2/portfolio/performance/?range=1d")
-  local state=$(echo $portfolio_info | jq .performance.currentGrossPerformancePercent | cut -c1-1)
+  local state=$(conform_number $(echo $portfolio_info | jq .performance.currentGrossPerformancePercent) | cut -c1-1)
   
   if [ $state != '-' ]
   then
@@ -185,11 +195,12 @@ overview_message () {
   # value changes
   local current_value=$(echo $performance | jq .currentValue | echo "scale=2;$(cat -) / 1" | bc -s)
   local net_absolute=$(echo $performance | jq .currentNetPerformance | echo "scale=2;$(cat -) / 1" | bc -s)
-  local net_relative=$(echo $1 | jq .performance.currentNetPerformancePercent | echo "scale=2;$(cat -) / 0.01" | bc -s)
+  local net_relative=$(conform_number $(echo $1 | jq .performance.currentNetPerformancePercent) | echo "scale=2;$(cat -) / 0.01" | bc -s )
 
   msg "Portfolio Performance change from ${CYAN}$start_date${NOFORMAT} to ${CYAN}$end_date${NOFORMAT}: \n"
   msg "   Current Value: \t $current_value"
-  if [ $(bool_expression $net_relative ">" "0") = 1 ]
+  # echo $1 | jq
+  if [ $(bool_expression $net_relative ">=" "0") = 1 ]
   then
     msg "Net Value Change: \t ${GREEN}$net_absolute (+$net_relative%)${NOFORMAT}"
   else
