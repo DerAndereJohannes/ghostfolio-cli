@@ -64,8 +64,6 @@ die() {
 
 parse_params() {
   # default values of variables set from params
-  # flag=0
-  # param=''
   source $CONFIG_FILE
 
   while :; do
@@ -73,11 +71,6 @@ parse_params() {
     -h | --help) usage ;;
     -v | --verbose) set -x ;;
     --no-color) NO_COLOR=1 ;;
-    # -f | --flag) flag=1 ;; # example flag
-    # -p | --param) # example named parameter
-      # param="${2-}"
-      # shift
-      # ;;
     -?*) die "Unknown option: $1" ;;
     *) break ;;
     esac
@@ -85,10 +78,6 @@ parse_params() {
   done
 
   args=("$@")
-
-  # check required params and arguments
-  # [[ -z "${param-}" ]] && die "Missing required parameter: param"
-  # [[ ${#args[@]} -eq 0 ]] && die "Missing script arguments"
 
   return 0
 }
@@ -150,8 +139,12 @@ conform_number () {
 
 get_symbol () {
   case "$1" in
-    USD) echo "$";;
-    EUR) echo "€";;
+    USD) echo "$ ";;
+    EUR) echo "€ ";;
+    GBP) echo "£ ";;
+    JPY) echo "¥ ";;
+    INR) echo "₹ ";;
+    *) echo "$1 "
   esac
 }
 
@@ -213,7 +206,7 @@ positions () {
   # sort the positions by performance percentage. Better positions are higher up
   local positions=$(execute_api "v1/portfolio/positions?range=$time_range" | jq '.positions | sort_by(.netPerformancePercentage) | reverse')
 
-  position_list "$positions" | column -s '|' --table --table-right 1
+  position_list "$positions" | column -s '|' --table --table-right 2
 
 }
 
@@ -224,9 +217,9 @@ position_list () {
     net_percentage=$(conform_number $net_percentage | echo "scale=2;$(cat -) / 0.01" | bc -s )
     if [ $(bool_expression $net_percentage ">=" 0) = 1 ]
     then
-      echo -e "$name ($symbol):|$(get_symbol $currency)$market_price (${GREEN}+$net_percentage%${NOFORMAT})"
+      echo -e "$name|($symbol):|$(get_symbol $currency)$market_price (${GREEN}+$net_percentage%${NOFORMAT})"
     else
-      echo -e "$name ($symbol):|$(get_symbol $currency)$market_price (${RED}$net_percentage%${NOFORMAT})"
+      echo -e "$name|($symbol):|$(get_symbol $currency)$market_price (${RED}$net_percentage%${NOFORMAT})"
     fi
   done
 }
