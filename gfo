@@ -158,8 +158,8 @@ accounts () {
   local accounts=$(execute_api "v1/account" | jq .accounts )
   local counter=0
   echo $accounts | jq -c '.[]' | while read account; do
-    local name=$(echo $account | jq -r .name)
-    read is_default account_type currency value balance trans_count created updated < <(echo $(echo $account | jq -r '.isDefault, .accountType, .currency, .value, .balance, .transactionCount, .createdAt, .updatedAt'))
+    local name=$(echo "$account" | jq -r .name)
+    local is_default=$(echo $account | jq -r .isDefault)
 
     if [ $is_default = true ]
     then
@@ -168,15 +168,7 @@ accounts () {
       msg "Account $counter: $name \n"
     fi
 
-    msg "\t                    ID: \t $counter"
-    msg "\t          Account Type: \t $account_type"
-    msg "\t              Currency: \t $currency"
-    msg "\t         Current Value: \t $(echo "scale=2;$value / 1" | bc -s)"
-    msg "\t       Current Balance: \t $(echo "scale=2;$balance / 1" | bc -s)"
-    msg "\tCompleted Transactions: \t $trans_count"
-
-    msg "\t               Created: \t $created"
-    msg "\t           Last Update: \t $updated"
+    accounts_view "$account" | column -s '|' --table --table-right 1
 
     if [ $counter = 0 ]
     then
@@ -187,6 +179,19 @@ accounts () {
     
   done
   
+}
+
+accounts_view () {
+    read account_type currency value balance trans_count created updated < <(echo $(echo "$1" | jq -r '.accountType, .currency, .value, .balance, .transactionCount, .createdAt, .updatedAt'))
+
+    echo -e "Account Type:|$account_type"
+    echo -e "Currency:|$currency"
+    echo -e "Current Value:|$(echo "scale=2;$value / 1" | bc -s)"
+    echo -e "Current Balance:|$(echo "scale=2;$balance / 1" | bc -s)"
+    echo -e "Completed Transactions:|$trans_count"
+    echo -e "Created:|$(date -d "$created" -R)"
+    echo -e "Last Update:|$(date -d "$updated" -R)"
+
 }
 
 positions () {
