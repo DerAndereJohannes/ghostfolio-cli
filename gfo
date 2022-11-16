@@ -34,6 +34,7 @@ SUBCOMMANDS:
     status          Check to see overview information about your profile
     account         Print overview account information
     positions       Print all positions sorted by relative net percentage change
+    config          Print out the configuration file
 EOF
   exit
 }
@@ -139,11 +140,12 @@ conform_number () {
 
 get_symbol () {
   case "$1" in
-    USD) echo "$ ";;
-    EUR) echo "€ ";;
-    GBP) echo "£ ";;
-    JPY) echo "¥ ";;
-    INR) echo "₹ ";;
+    USD) echo "$ " ;;
+    EUR) echo "€ " ;;
+    GBP) echo "£ " ;;
+    JPY) echo "¥ " ;;
+    INR) echo "₹ " ;;
+    CHF) echo "₣ " ;;
     *) echo "$1 "
   esac
 }
@@ -168,7 +170,7 @@ accounts () {
       msg "Account $counter: $name \n"
     fi
 
-    accounts_view "$account" | column -s '|' --table --table-right 1
+    accounts_view "$account" | column -s '|' --table
 
     if [ $counter = 0 ]
     then
@@ -210,6 +212,11 @@ positions () {
   
   # sort the positions by performance percentage. Better positions are higher up
   local positions=$(execute_api "v1/portfolio/positions?range=$time_range" | jq '.positions | sort_by(.netPerformancePercentage) | reverse')
+  local chart=$(execute_api "v2/portfolio/performance?range=$time_range" | jq .chart)
+  local start_date=$(echo $chart | jq -r .[0].date)
+  local end_date=$(echo $chart | jq -r .[-1].date)
+
+  msg "${ORANGE}Portfolio Performance change from${NOFORMAT} ${CYAN}$start_date${NOFORMAT} ${ORANGE}to${NOFORMAT} ${CYAN}$end_date${NOFORMAT} ${ORANGE}($time_range)${NOFORMAT}"
 
   position_list "$positions" | column -s '|' --table --table-right 2
 
@@ -243,6 +250,10 @@ quick_check () {
   exit 0
 }
 
+config () {
+  cat $CONFIG_FILE
+}
+
 overview () {
 
   logged_in_check
@@ -259,34 +270,36 @@ overview () {
   fi
   
   local portfolio_info=$(execute_api "v2/portfolio/performance/?range=$time_range")
-  local accounts_info=$(execute_api "v1/account")
-  # echo $portfolio_info | jq
-  overview_message $portfolio_info
+  local accounts_info=$(execute_api "v1/user")
+  local base_currency=$(get_symbol $(echo "$accounts_info" | jq -r .settings.baseCurrency))
+
+  # dates
+  local chart=$(echo $portfolio_info | jq .chart)
+  local start_date=$(echo $chart | jq -r .[0].date)
+  local end_date=$(echo $chart | jq -r .[-1].date)
+
+  msg "${ORANGE}Portfolio Performance change from${NOFORMAT} ${CYAN}$start_date${NOFORMAT} ${ORANGE}to${NOFORMAT} ${CYAN}$end_date${NOFORMAT} ${ORANGE}($time_range)${NOFORMAT}"
+
+  overview_message $portfolio_info $base_currency | column -s "|" --table
   exit 0
 }
 
 overview_message () {
   # main blocks
-  local chart=$(echo $1 | jq .chart)
   local performance=$(echo $1 | jq .performance)
-    
-  # dates
-  local start_date=$(echo $chart | jq -r .[0].date)
-  local end_date=$(echo $chart | jq -r .[-1].date)
     
   # value changes
   local current_value=$(echo $performance | jq .currentValue | echo "scale=2;$(cat -) / 1" | bc -s)
   local net_absolute=$(echo $performance | jq .currentNetPerformance | echo "scale=2;$(cat -) / 1" | bc -s)
   local net_relative=$(conform_number $(echo $1 | jq .performance.currentNetPerformancePercent) | echo "scale=2;$(cat -) / 0.01" | bc -s )
 
-  msg "Portfolio Performance change from ${CYAN}$start_date${NOFORMAT} to ${CYAN}$end_date${NOFORMAT}: \n"
-  msg "\t   Current Value: \t $current_value"
-  # echo $1 | jq
+  echo -e "Current Value:|$2 $current_value"
+
   if [ $(bool_expression $net_relative ">=" "0") = 1 ]
   then
-    msg "\tNet Value Change: \t ${GREEN}$net_absolute (+$net_relative%)${NOFORMAT}"
+    echo -e "Net Value Change:|${GREEN}$2 $net_absolute (+$net_relative%)${NOFORMAT}"
   else
-    msg "\tNet Value Change: \t ${RED}$net_absolute ($net_relative%)${NOFORMAT}"
+    echo -e "Net Value Change:|${RED}$2 $net_absolute ($net_relative%)${NOFORMAT}"
   fi
 
 }
@@ -330,7 +343,8 @@ case "$1" in
   login) shift; login "$@" ;;
   accounts) shift; accounts "$@" ;; 
   positions) shift; positions "$@" ;;
-  status) shift; overview "$@";;
+  status) shift; overview "$@" ;;
+  config) shift; config "$@" ;;
   *) die "${RED}Error:${NOFORMAT} Unknown option: $1" ;;
 esac
 
