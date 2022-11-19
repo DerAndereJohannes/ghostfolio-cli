@@ -84,7 +84,12 @@ parse_params() {
 }
 
 login () {
-  GHOSTFOLIO_AUTH="$(curl -s $GHOSTFOLIO_INSTANCE/api/v1/auth/anonymous/"$1" | jq -r .authToken)"
+  if [ "$1" = "demo" ]
+  then
+    GHOSTFOLIO_AUTH="$(execute_api "v1/info" | jq -r .demoAuthToken)"
+  else
+    GHOSTFOLIO_AUTH="$(execute_api "v1/auth/anonymous/$1" | jq -r .authToken)"
+  fi
   
   if [ $(echo -n "$GHOSTFOLIO_AUTH" | wc -m) = 187 ] 
   then
