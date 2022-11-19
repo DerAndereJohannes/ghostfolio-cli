@@ -24,7 +24,7 @@ With the correct instance, you can start typing away!
 
 ## Examples
 
-Login to your desired Ghostfolio instance
+Login to your desired Ghostfolio instance (use "demo" as argument to get the demo account)
 
 ```shell
 $ gfo login <secret token>
