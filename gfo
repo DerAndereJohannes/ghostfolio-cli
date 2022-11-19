@@ -238,13 +238,31 @@ position_list () {
 
 quick_check () {
   local portfolio_info=$(execute_api "v2/portfolio/performance?range=1d")
+  local change=$(conform_number $(echo $portfolio_info | jq .performance.currentGrossPerformancePercent))
   local state=$(conform_number $(echo $portfolio_info | jq .performance.currentGrossPerformancePercent) | cut -c1-1)
-  
-  if [ $state != '-' ]
+   
+  if [ $(bool_expression "$change"  "<" "$SMILE_MID_MAX") -eq 1 ] && [ $(bool_expression "$change" ">" "$SMILE_MID_MIN") -eq 1 ]
   then
-    msg ":-)"
-  else
-    msg ":-("
+    # if basically zero
+    msg ":-|"
+  elif [ $(bool_expression "$change"  ">=" "$SMILE_MID_MAX") -eq 1 ]
+  then
+    # Doing good!
+    if [ $(bool_expression "$change" "<" "$SMILE_GOOD_MAX") -eq 1 ]
+    then
+      msg ":-)"
+    else
+      msg ":-D"
+    fi
+  elif [ $(bool_expression "$change"  "<=" "$SMILE_MID_MIN") -eq 1 ]
+  then
+    # Doing bad!
+    if [ $(bool_expression "$change" ">" "$SMILE_BAD_MAX") -eq 1 ]
+    then
+      msg ":-("
+    else
+      msg ":'-("
+    fi
   fi
 
   exit 0
@@ -308,8 +326,19 @@ if [ ! -f $CONFIG_FILE ]
 then
   mkdir -p $(dirname $CONFIG_FILE)
   cat << EOF > $CONFIG_FILE
+# Instance URL
 GHOSTFOLIO_INSTANCE="http://localhost:3333"
+
+# Default range that should be used in arguments
 DEFAULT_RANGE="1d"
+
+# Smiley settings: When is a portfolio doing well and when not?
+SMILE_MID_MIN=-0.25 # minimum value to be considered neutral portfolio
+SMILE_MID_MAX=0.25   # maximum value to be considered neutral portfolio
+SMILE_GOOD_MAX=1    # maximum value to be considered "good". Above is "great"!
+SMILE_BAD_MAX=-1     # minimum value to be considered "bad". Below is "terrible"!
+
+# Bearer Auth Code
 GHOSTFOLIO_AUTH=
 EOF
   
