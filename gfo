@@ -139,7 +139,8 @@ conform_number () {
   then
       echo 0
   else
-      echo $1
+      # return number including trailing 0 if -1 < number < 1
+      echo $1 | sed -e 's/^\./0./' -e 's/^-\./-0./'
   fi
 }
 
@@ -244,7 +245,6 @@ position_list () {
 quick_check () {
   local portfolio_info=$(execute_api "v2/portfolio/performance?range=1d")
   local change=$(conform_number $(echo $portfolio_info | jq .performance.currentGrossPerformancePercent))
-  local state=$(conform_number $(echo $portfolio_info | jq .performance.currentGrossPerformancePercent) | cut -c1-1)
    
   if [ $(bool_expression "$change"  "<" "$SMILE_MID_MAX") -eq 1 ] && [ $(bool_expression "$change" ">" "$SMILE_MID_MIN") -eq 1 ]
   then
