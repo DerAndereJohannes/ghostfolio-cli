@@ -244,9 +244,14 @@ position_list () {
 
 quick_check () {
   local portfolio_info=$(execute_api "v2/portfolio/performance?range=1d")
-  local change=$(conform_number $(echo $portfolio_info | jq .performance.currentGrossPerformancePercent))
-   
-  if [ $(bool_expression "$change"  "<" "$SMILE_MID_MAX") -eq 1 ] && [ $(bool_expression "$change" ">" "$SMILE_MID_MIN") -eq 1 ]
+  local change=$(conform_number $(conform_number $(echo $portfolio_info | jq .performance.currentNetPerformancePercent) | echo "scale=2;$(cat -) / 0.01" | bc -s))
+  local dow=$(date +%u)
+
+  if [ $(bool_expression "$dow" ">" "5" ) -eq 1 ]
+  then
+    # if it is the weekend, make sure to tell them that they are not doing it right
+    msg "It's the weekend. Go out and have some fun! 8-)"
+  elif [ $(bool_expression "$change"  "<" "$SMILE_MID_MAX") -eq 1 ] && [ $(bool_expression "$change" ">" "$SMILE_MID_MIN") -eq 1 ]
   then
     # if basically zero
     msg ":-|"
